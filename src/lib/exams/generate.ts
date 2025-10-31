@@ -22,16 +22,19 @@ export interface ExamGenerationOptions {
   };
 }
 
-export const generateExamMarkdown = async ({
-  courseTitle,
-  courseDescription,
-  questionCount = 20,
-  difficultyLevel = "medium",
-  extraInstructions,
-  provider,
-  model,
-  materials,
-}: ExamGenerationOptions) => {
+export const generateExamMarkdown = async (
+  {
+    courseTitle,
+    courseDescription,
+    questionCount = 20,
+    difficultyLevel = "medium",
+    extraInstructions,
+    provider,
+    model,
+    materials,
+  }: ExamGenerationOptions,
+  onStreamChunk?: (chunk: string) => Promise<void> | void,
+) => {
   const selectedProvider = resolveProvider(provider);
 
   if (selectedProvider === "openai") {
@@ -39,6 +42,40 @@ export const generateExamMarkdown = async ({
       "当前配置的模型无法直接理解 PDF/PPT，请将 AI_PROVIDER 设置为 qwen 或 gemini。",
     );
   }
+
+  const templateGuidance = [
+    "",
+    "请严格按照以下 Markdown 模板组织输出：",
+    "# 试卷标题（示例：线性代数期末模拟卷）",
+    "- 考试时长：XX 分钟",
+    "- 试卷总分：XX 分",
+    "",
+    "## 一、单选题（共 X 题，每题 X 分）",
+    "1. **题干描述**",
+    "   - A. 选项 A",
+    "   - B. 选项 B",
+    "   - C. 选项 C",
+    "   - D. 选项 D",
+    "",
+    "## 二、填空题（共 X 题，每题 X 分）",
+    "1. 题干，使用下划线或留白表示答案位置",
+    "",
+    "## 三、计算 / 解答题（如适用）",
+    "1. 题干，分条描述已知条件和求解步骤",
+    "",
+    "## 四、简答题",
+    "1. 题干，列出需要回答的要点",
+    "",
+    "## 参考答案",
+    "### 单选题",
+    "1. 正确选项 + 简要解析",
+    "### 填空题",
+    "1. 标准答案或要点",
+    "### 计算 / 解答题",
+    "1. 作答步骤与最终结论",
+    "### 简答题",
+    "1. 核心要点",
+  ].join("\n");
 
   if (selectedProvider === "gemini") {
     const attachments: Array<{ label: string; file: StoredMaterialFile }> = [];
@@ -81,8 +118,9 @@ export const generateExamMarkdown = async ({
       "- 试卷头部包含课程名称、考试时长、满分等关键信息；",
       "- 单选题、填空题、计算题（如适用）、简答题分段呈现，题干与选项之间换行清晰，选项使用 A/B/C/D 形式；",
       "- 不要引用或生成需要查看图片的题目，如原题依赖图片，请改用文字描述；",
-      "- 参考答案使用二级标题，按题号依次给出答案；",
+      "- 参考答案使用二级标题或折叠块，按题号依次给出答案；",
       "- 保证 Markdown 语法规范，便于后续转换为 PDF。",
+      templateGuidance,
     ]
       .filter(Boolean)
       .join("\n");
@@ -119,7 +157,7 @@ export const generateExamMarkdown = async ({
       })),
     ];
 
-    const result = await modelInstance.generateContent({
+    const streamResult = await modelInstance.generateContentStream({
       contents: [
         {
           role: "user",
@@ -128,10 +166,21 @@ export const generateExamMarkdown = async ({
       ],
     });
 
-    const response = await result.response;
-    const markdown = response
-      .text()
-      ?.trim();
+    let markdown = "";
+    for await (const chunk of streamResult.stream) {
+      const text = chunk.text();
+      if (text) {
+        markdown += text;
+        if (onStreamChunk) {
+          await onStreamChunk(text);
+        }
+      }
+    }
+
+    if (!markdown) {
+      const aggregate = await streamResult.response;
+      markdown = aggregate.text()?.trim() ?? "";
+    }
 
     if (!markdown) {
       throw new Error("未能从 Gemini 获取到模拟卷内容。");
@@ -151,6 +200,7 @@ export const generateExamMarkdown = async ({
     "3. 不要引用无法文字描述的图片或图像信息，如原题依赖图片，请改为文字描述；",
     "4. 参考答案使用二级标题或折叠块按题号列出，答案简明准确；",
     "5. 保证 Markdown 语法规范，便于后续转换为 PDF。",
+    templateGuidance,
   ].join("\n");
 
   const uploadedFiles: Array<{ id: string; label: string }> = [];
@@ -226,6 +276,10 @@ export const generateExamMarkdown = async ({
 
   if (!markdown) {
     throw new Error("未能从大模型获取到模拟卷内容。");
+  }
+
+  if (markdown && onStreamChunk) {
+    await onStreamChunk(markdown);
   }
 
   return markdown;

@@ -26,11 +26,15 @@ export const ExamGenerationForm = ({
     "idle" | "generating" | "success" | "error"
   >("idle");
   const [message, setMessage] = useState<string | null>(null);
+  const [progress, setProgress] = useState<string | null>(null);
+  const [previewText, setPreviewText] = useState<string>("");
 
   const handleGenerate = async () => {
     try {
       setStatus("generating");
       setMessage(null);
+      setProgress("正在准备生成试卷...");
+      setPreviewText("");
 
       const response = await fetch("/api/generate-exam", {
         method: "POST",
@@ -45,30 +49,109 @@ export const ExamGenerationForm = ({
         }),
       });
 
+      if (!response.body) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.message || "生成失败，请稍后再试。");
+      }
+
       if (!response.ok) {
         const payload = await response.json().catch(() => ({}));
         throw new Error(payload.message || "生成失败，请稍后再试。");
       }
 
-      setStatus("success");
-      setMessage("生成成功！可以在下方查看最新的模拟卷。");
-      await onGenerated?.();
-      if (typeof window !== "undefined") {
-        const gtag = (window as typeof window & {
-          gtag?: (...args: unknown[]) => void;
-        }).gtag;
-        gtag?.("event", "generate_exam", {
-          submission_id: submissionId,
-          question_count: questionCount,
-          difficulty,
-        });
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let finished = false;
+
+      type StreamMessage =
+        | { type: "chunk"; text: string }
+        | { type: "status"; message?: string }
+        | { type: "error"; message?: string }
+        | { type: "done"; examId?: string };
+
+      const processBuffer = async (flush = false) => {
+        const parts = buffer.split("\n");
+        if (!flush) {
+          buffer = parts.pop() ?? "";
+        } else {
+          buffer = "";
+        }
+
+        for (const line of parts) {
+          if (!line.trim()) continue;
+          let data: StreamMessage;
+          try {
+            data = JSON.parse(line) as StreamMessage;
+          } catch {
+            continue;
+          }
+
+          if (data.type === "chunk") {
+            setPreviewText((prev) => prev + data.text);
+          } else if (data.type === "status") {
+            setProgress(data.message || null);
+          } else if (data.type === "error") {
+            finished = true;
+            setStatus("error");
+            setMessage(data.message || "生成失败，请稍后再试。");
+            setProgress(null);
+            try {
+              await reader.cancel();
+            } catch {
+              // ignore
+            }
+            return;
+          } else if (data.type === "done") {
+            finished = true;
+            setStatus("success");
+            setMessage("生成成功！可以在下方查看最新的模拟卷。");
+            setProgress(null);
+            if (typeof window !== "undefined") {
+              const gtag = (window as typeof window & {
+                gtag?: (...args: unknown[]) => void;
+              }).gtag;
+              gtag?.("event", "generate_exam", {
+                submission_id: submissionId,
+                question_count: questionCount,
+                difficulty,
+              });
+            }
+            await onGenerated?.();
+            router.refresh();
+            try {
+              await reader.cancel();
+            } catch {
+              // ignore
+            }
+            return;
+          }
+        }
+      };
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) {
+          buffer += decoder.decode();
+          await processBuffer(true);
+          break;
+        }
+        buffer += decoder.decode(value, { stream: true });
+        await processBuffer();
+        if (finished) break;
       }
-      router.refresh();
+
+      if (!finished) {
+        setStatus("error");
+        setMessage("生成过程被中断，请稍后重试。");
+        setProgress(null);
+      }
     } catch (error) {
       setStatus("error");
       setMessage(
         error instanceof Error ? error.message : "生成失败，请重试。",
       );
+      setProgress(null);
     }
   };
 
@@ -145,6 +228,22 @@ export const ExamGenerationForm = ({
           </span>
         )}
       </div>
+
+      {(status === "generating" || previewText) && (
+        <div className="mt-6 rounded-lg border border-slate-200 bg-slate-50 p-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-medium text-slate-900">
+              实时生成预览
+            </h3>
+            {progress && (
+              <span className="text-xs text-slate-500">{progress}</span>
+            )}
+          </div>
+          <pre className="mt-3 max-h-80 overflow-y-auto whitespace-pre-wrap text-sm text-slate-700">
+            {previewText || "正在等待模型输出..."}
+          </pre>
+        </div>
+      )}
     </div>
   );
 };
