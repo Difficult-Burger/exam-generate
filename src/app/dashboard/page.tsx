@@ -1,10 +1,11 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Plus, UploadCloud } from "lucide-react";
+import { UploadCloud } from "lucide-react";
 import { UploadMaterialForm } from "@/components/course/upload-form";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { getCurrentUser } from "@/lib/auth";
 import { SignOutButton } from "@/components/auth/sign-out-button";
+import { parseStoragePaths } from "@/lib/materials/files";
 
 const fetchSubmissions = async (userId: string) => {
   const supabase = await createServerSupabaseClient();
@@ -138,66 +139,70 @@ export default async function DashboardPage() {
       <UploadMaterialForm />
 
       <section className="mt-8">
-        <div className="mb-4 flex items-center justify-between">
+        <div className="mb-4">
           <h2 className="text-lg font-semibold text-slate-900">
             最近上传
           </h2>
-          <Link
-            href="#"
-            className="inline-flex items-center text-sm font-medium text-slate-600 hover:text-slate-900"
-          >
-            <Plus className="mr-1 h-4 w-4" />
-            快速生成模拟卷
-          </Link>
         </div>
 
         {submissions.length === 0 ? (
           emptyState
         ) : (
           <div className="grid gap-4 lg:grid-cols-2">
-            {submissions.map((submission) => (
-              <article
-                key={submission.id}
-                className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm"
-              >
-                <h3 className="text-lg font-medium text-slate-900">
-                  {submission.course_title}
-                </h3>
-                {submission.course_description && (
-                  <p className="mt-2 text-sm text-slate-600">
-                    {submission.course_description}
-                  </p>
-                )}
-                <dl className="mt-4 grid grid-cols-2 gap-y-1 text-xs text-slate-500">
-                  <div>
-                    <dt>slides</dt>
-                    <dd className="truncate">
-                      {submission.slides_storage_path}
-                    </dd>
-                  </div>
-                  {submission.sample_storage_path && (
+            {submissions.map((submission) => {
+              const slidePaths = parseStoragePaths(
+                submission.slides_storage_path,
+              );
+              const samplePaths = parseStoragePaths(
+                submission.sample_storage_path,
+              );
+
+              return (
+                <article
+                  key={submission.id}
+                  className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm"
+                >
+                  <h3 className="text-lg font-medium text-slate-900">
+                    {submission.course_title}
+                  </h3>
+                  {submission.course_description && (
+                    <p className="mt-2 text-sm text-slate-600">
+                      {submission.course_description}
+                    </p>
+                  )}
+                  <dl className="mt-4 grid grid-cols-2 gap-y-1 text-xs text-slate-500">
+                    <div>
+                      <dt>slides</dt>
+                      <dd className="truncate">
+                        {slidePaths.length > 0
+                          ? `${slidePaths.length} 个文件`
+                          : "未上传"}
+                      </dd>
+                    </div>
                     <div>
                       <dt>样例试卷</dt>
                       <dd className="truncate">
-                        {submission.sample_storage_path}
+                        {samplePaths.length > 0
+                          ? `${samplePaths.length} 个文件`
+                          : "—"}
                       </dd>
                     </div>
-                  )}
-                  <div>
-                    <dt>上传时间</dt>
-                    <dd>
-                      {new Date(submission.created_at).toLocaleString()}
-                    </dd>
-                  </div>
-                </dl>
-                <Link
-                  href={`/submissions/${submission.id}`}
-                  className="mt-4 inline-flex items-center text-sm font-medium text-slate-700 hover:text-slate-900"
-                >
-                  查看详情
-                </Link>
-              </article>
-            ))}
+                    <div>
+                      <dt>上传时间</dt>
+                      <dd>
+                        {new Date(submission.created_at).toLocaleString()}
+                      </dd>
+                    </div>
+                  </dl>
+                  <Link
+                    href={`/submissions/${submission.id}`}
+                    className="mt-4 inline-flex items-center text-sm font-medium text-slate-700 hover:text-slate-900"
+                  >
+                    查看详情
+                  </Link>
+                </article>
+              );
+            })}
           </div>
         )}
       </section>

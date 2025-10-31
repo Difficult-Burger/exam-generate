@@ -4,7 +4,7 @@ import {
   createServerSupabaseClient,
   createServiceRoleSupabaseClient,
 } from "@/lib/supabase/server";
-import { downloadMaterialFile } from "@/lib/materials/download";
+import { downloadMaterialFiles } from "@/lib/materials/files";
 import {
   generateExamMarkdown,
   type ExamGenerationOptions,
@@ -77,20 +77,20 @@ export async function POST(request: Request) {
       );
     }
 
-    const [slidesFile, sampleFile] = await Promise.all([
-      downloadMaterialFile(submission.slides_storage_path),
-      submission.sample_storage_path
-        ? downloadMaterialFile(submission.sample_storage_path).catch(
-            () => null,
-          )
-        : Promise.resolve(null),
+    const [slidesFiles, sampleFiles] = await Promise.all([
+      downloadMaterialFiles(submission.slides_storage_path),
+      downloadMaterialFiles(submission.sample_storage_path).catch(() => []),
     ]);
 
     const providerRaw = String(
       payload.provider || process.env.AI_PROVIDER || "openai",
     ).toLowerCase();
-    const provider: AIProvider =
-      providerRaw === "qwen" ? "qwen" : "openai";
+    let provider: AIProvider = "openai";
+    if (providerRaw === "qwen") {
+      provider = "qwen";
+    } else if (providerRaw === "gemini") {
+      provider = "gemini";
+    }
     const reqModel = payload.model ? String(payload.model) : undefined;
 
     const examMarkdown = await generateExamMarkdown({
@@ -102,8 +102,8 @@ export async function POST(request: Request) {
       provider,
       model: reqModel,
       materials: {
-        slides: slidesFile,
-        sample: sampleFile,
+        slides: slidesFiles,
+        samples: sampleFiles,
       },
     });
 
@@ -138,6 +138,8 @@ export async function POST(request: Request) {
           difficulty,
           provider,
           model: reqModel,
+          slidesCount: slidesFiles.length,
+          sampleCount: sampleFiles.length,
         },
       })
       .select()

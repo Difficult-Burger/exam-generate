@@ -1,18 +1,23 @@
 import OpenAI from "openai";
 
-export type AIProvider = "openai" | "qwen";
+export type AIProvider = "openai" | "qwen" | "gemini";
 
-const cachedClients: Partial<Record<AIProvider, OpenAI>> = {};
+const cachedClients: Partial<Record<Exclude<AIProvider, "gemini">, OpenAI>> = {};
 
-const resolveProvider = (provider?: AIProvider): AIProvider => {
+export const resolveProvider = (provider?: AIProvider): AIProvider => {
   if (provider) return provider;
   const env = process.env.AI_PROVIDER?.toLowerCase();
   if (env === "qwen") return "qwen";
+  if (env === "gemini") return "gemini";
   return "openai";
 };
 
 export const getLLMClient = (provider?: AIProvider): OpenAI => {
   const selected = resolveProvider(provider);
+
+  if (selected === "gemini") {
+    throw new Error("Gemini 需使用专用客户端，请勿通过 getLLMClient 访问。");
+  }
 
   if (cachedClients[selected]) {
     return cachedClients[selected] as OpenAI;
@@ -54,6 +59,10 @@ export const getDefaultModel = (provider?: AIProvider): string => {
 
   if (selected === "qwen") {
     return process.env.QWEN_DEFAULT_MODEL || "qwen-plus";
+  }
+
+  if (selected === "gemini") {
+    return process.env.GEMINI_DEFAULT_MODEL || "gemini-1.5-flash";
   }
 
   return process.env.OPENAI_DEFAULT_MODEL || "gpt-4o-mini";

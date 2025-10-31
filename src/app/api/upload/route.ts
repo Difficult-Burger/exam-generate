@@ -12,43 +12,44 @@ const ACCEPTED_MIME = [
   "application/vnd.openxmlformats-officedocument.presentationml.presentation",
 ];
 
-const getValidatedFile = (
-  file: File | null,
+const filterFiles = (entries: FormDataEntryValue[]) =>
+  entries.filter((value): value is File => value instanceof File);
+
+const validateFiles = (
+  files: File[],
   field: string,
   isRequired: boolean,
 ) => {
-  if (!file) {
+  if (!files.length) {
     if (isRequired) {
       throw new Error(`Missing required file: ${field}`);
     }
-    return null;
+    return [];
   }
 
-  if (!ACCEPTED_MIME.includes(file.type)) {
-    throw new Error(
-      `${field} must be a PDF or PowerPoint file. Received ${file.type}`,
-    );
-  }
+  files.forEach((file) => {
+    if (!ACCEPTED_MIME.includes(file.type)) {
+      throw new Error(
+        `${field} must be a PDF or PowerPoint file. Received ${file.type}`,
+      );
+    }
 
-  const sizeMb = file.size / (1024 * 1024);
-  if (sizeMb > MAX_FILE_SIZE_MB) {
-    throw new Error(`${field} exceeds the ${MAX_FILE_SIZE_MB}MB limit.`);
-  }
+    const sizeMb = file.size / (1024 * 1024);
+    if (sizeMb > MAX_FILE_SIZE_MB) {
+      throw new Error(`${field} exceeds the ${MAX_FILE_SIZE_MB}MB limit.`);
+    }
+  });
 
-  return file;
+  return files;
 };
 
 const uploadToStorage = async (
   supabase: SupabaseClient<Database>,
+  bucketName: string,
   userId: string,
   file: File,
   folder: string,
 ) => {
-  const bucketName =
-    process.env.SUPABASE_STORAGE_BUCKET || "course-assets";
-
-  await ensureBucket(bucketName);
-
   const arrayBuffer = await file.arrayBuffer();
   const path = `${userId}/${folder}/${randomUUID()}-${file.name}`;
 
@@ -97,31 +98,41 @@ export async function POST(request: Request) {
       );
     }
 
-    const slidesFile = getValidatedFile(
-      formData.get("slides") as File | null,
-      "slides",
-      true,
-    );
+    const slidesEntries = filterFiles(formData.getAll("slides"));
+    const sampleEntries = filterFiles(formData.getAll("sampleExam"));
 
-    const sampleFile = getValidatedFile(
-      formData.get("sampleExam") as File | null,
-      "sampleExam",
-      false,
-    );
+    const slidesFiles = validateFiles(slidesEntries, "slides", true);
+    const sampleFiles = validateFiles(sampleEntries, "sampleExam", false);
 
-    if (!slidesFile) {
+    if (!slidesFiles.length) {
       return NextResponse.json(
         { message: "Slides file is required." },
         { status: 400 },
       );
     }
 
-    const [slidesPath, samplePath] = await Promise.all([
-      uploadToStorage(supabase, user.id, slidesFile, "slides"),
-      sampleFile
-        ? uploadToStorage(supabase, user.id, sampleFile, "samples")
-        : Promise.resolve<string | null>(null),
-    ]);
+    const bucketName =
+      process.env.SUPABASE_STORAGE_BUCKET || "course-assets";
+
+    await ensureBucket(bucketName);
+
+    const uploadFiles = async (files: File[], folder: string) => {
+      const paths: string[] = [];
+      for (const file of files) {
+        const path = await uploadToStorage(
+          supabase,
+          bucketName,
+          user.id,
+          file,
+          folder,
+        );
+        paths.push(path);
+      }
+      return paths;
+    };
+
+    const slidesPaths = await uploadFiles(slidesFiles, "slides");
+    const samplePaths = await uploadFiles(sampleFiles, "samples");
 
     const { data, error } = await supabase
       .from("course_submissions")
@@ -129,8 +140,10 @@ export async function POST(request: Request) {
         owner_id: user.id,
         course_title: courseTitle,
         course_description: courseDescription || null,
-        slides_storage_path: slidesPath,
-        sample_storage_path: samplePath,
+        slides_storage_path: JSON.stringify(slidesPaths),
+        sample_storage_path: samplePaths.length
+          ? JSON.stringify(samplePaths)
+          : null,
       })
       .select()
       .single();

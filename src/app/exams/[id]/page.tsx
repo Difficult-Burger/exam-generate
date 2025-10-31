@@ -3,7 +3,6 @@ import { notFound, redirect } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { getCurrentUser } from "@/lib/auth";
-import { MarkdownViewer } from "@/components/exams/markdown-viewer";
 import { DownloadButton } from "@/components/exams/download-button";
 
 const loadExam = async (examId: string, ownerId: string) => {
@@ -41,6 +40,8 @@ export default async function ExamPage({
     notFound();
   }
 
+  const previewUrl = `/api/exams/${exam.id}/preview`;
+
   return (
     <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 p-6 md:p-10">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -63,12 +64,16 @@ export default async function ExamPage({
         </p>
       </header>
 
-      <div className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
-        {exam.output_markdown ? (
-          <MarkdownViewer content={exam.output_markdown} />
+      <div className="rounded-lg border border-slate-200 bg-white shadow-sm">
+        {exam.pdf_storage_path ? (
+          <iframe
+            src={previewUrl}
+            title="PDF 预览"
+            className="h-[80vh] w-full"
+          />
         ) : (
-          <p className="text-sm text-slate-500">
-            这份试卷暂无 Markdown 内容。
+          <p className="p-6 text-sm text-slate-500">
+            尚未生成 PDF。
           </p>
         )}
       </div>

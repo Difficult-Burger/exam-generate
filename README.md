@@ -32,10 +32,12 @@ Exam Forge 帮助大学生基于课程资料快速生成模拟试卷。上传 sl
    | `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key（仅在服务端使用） |
    | `SUPABASE_STORAGE_BUCKET` | 存储桶名称，默认 `course-assets` |
    | `NEXT_PUBLIC_SITE_URL` | 前端站点地址（本地可设为 `http://localhost:3000`） |
-   | `OPENAI_API_KEY` | OpenAI key，用于调用 GPT-4o-mini |
-   | `AI_PROVIDER` | 可选，`openai` 或 `qwen`（默认 `openai`） |
-   | `QWEN_API_KEY` | 可选，调用 Qwen（百炼）时的 API Key（或设置 `DASHSCOPE_API_KEY`） |
-   | `QWEN_BASE_URL` | 可选，Qwen 兼容模式 Base URL（默认 `https://dashscope.aliyuncs.com/compatible-mode/v1`） |
+| `OPENAI_API_KEY` | OpenAI key，用于调用 GPT-4o-mini |
+| `AI_PROVIDER` | 可选，`openai` / `qwen` / `gemini`（默认 `openai`） |
+| `QWEN_API_KEY` | 可选，调用 Qwen（百炼）时的 API Key（或设置 `DASHSCOPE_API_KEY`） |
+| `QWEN_BASE_URL` | 可选，Qwen 兼容模式 Base URL（默认 `https://dashscope.aliyuncs.com/compatible-mode/v1`） |
+| `GEMINI_API_KEY` | 可选，调用 Google Gemini 时的 API Key |
+| `GEMINI_DEFAULT_MODEL` | 可选，Gemini 默认模型（默认 `gemini-1.5-flash`） |
    | `GOOGLE_ANALYTICS_ID` | 可选，GA4 测量 ID（形如 `G-XXXX`） |
 
 3. **初始化 Supabase**
@@ -53,8 +55,8 @@ Exam Forge 帮助大学生基于课程资料快速生成模拟试卷。上传 sl
 
 ## 功能概览
 
-- 📤 **资料上传**：PDF / PPTX（最大 40MB），自动上传到 Supabase Storage，后续由 Qwen 文档理解直接读取原文件。
-- 🧠 **AI 生成**：默认调用 Qwen（百炼 OpenAI 兼容接口）基于上传附件生成 Markdown 试卷；也保留 OpenAI 入口，可按需切换。
+- 📤 **资料上传**：PDF / PPTX（单文件 ≤ 40MB，支持批量上传），自动存入 Supabase Storage，后续由模型直接读取原始附件。
+- 🧠 **AI 生成**：支持 Qwen（百炼兼容接口）与 Gemini（Google Generative AI），默认 Qwen；也保留 OpenAI 入口，可按需切换。
 - 📄 **Markdown 预览 & PDF 导出**：md-to-pdf + Puppeteer 动态生成 A4 PDF。
 - 📈 **额度管理**：Supabase 函数 `consume_free_download` 管理 3 次免费下载，超过返回 402 提示付费。
 - 🧾 **下载审计**：`download_events` 表记录下载次数与费用。
@@ -89,7 +91,7 @@ Exam Forge 帮助大学生基于课程资料快速生成模拟试卷。上传 sl
 - 所有与 Supabase 的交互均通过封装好的 `createServerSupabaseClient` / `createServiceRoleSupabaseClient`。
 - 生成 Markdown → PDF 的过程使用 `renderPdfFromMarkdown`，位于 `src/lib/exams/render-pdf.ts`。
 - 若需扩展题型或模板，可调整 `src/lib/exams/generate.ts` 中的提示词。
-- 想要替换大模型供应商，可在 `src/lib/openai.ts` 设置 `AI_PROVIDER` 为 `openai` / `qwen`，或在 `/api/generate-exam` 请求体中传入 `{ provider, model }` 覆盖。
+- 想要替换大模型供应商，可在 `src/lib/openai.ts` 设置 `AI_PROVIDER` 为 `openai` / `qwen` / `gemini`，或在 `/api/generate-exam` 请求体中传入 `{ provider, model }` 覆盖。Gemini 模式会自动将 PDF/PPTX 以 inline data 附件的形式传入。
 
 ---
 

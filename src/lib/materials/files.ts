@@ -4,16 +4,19 @@ export interface StoredMaterialFile {
   buffer: Buffer;
   mimeType: string | null;
   fileName: string;
+  storagePath: string;
 }
 
-export const downloadMaterialFile = async (
+const bucketName = () =>
+  process.env.SUPABASE_STORAGE_BUCKET || "course-assets";
+
+const downloadSingle = async (
   storagePath: string,
 ): Promise<StoredMaterialFile> => {
-  const bucket = process.env.SUPABASE_STORAGE_BUCKET || "course-assets";
   const supabase = createServiceRoleSupabaseClient();
 
   const { data, error } = await supabase.storage
-    .from(bucket)
+    .from(bucketName())
     .download(storagePath);
 
   if (error || !data) {
@@ -24,7 +27,6 @@ export const downloadMaterialFile = async (
 
   const arrayBuffer = await data.arrayBuffer();
   const buffer = Buffer.from(arrayBuffer);
-
   const segments = storagePath.split("/");
   const fileName = segments[segments.length - 1] || "source";
 
@@ -32,5 +34,28 @@ export const downloadMaterialFile = async (
     buffer,
     mimeType: data.type ?? null,
     fileName,
+    storagePath,
   };
+};
+
+export const parseStoragePaths = (raw: string | null | undefined) => {
+  if (!raw) return [];
+
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      return parsed.filter((item) => typeof item === "string") as string[];
+    }
+  } catch {
+    // fallback: treat as single path
+  }
+
+  return raw ? [raw] : [];
+};
+
+export const downloadMaterialFiles = async (
+  rawPaths: string | null | undefined,
+): Promise<StoredMaterialFile[]> => {
+  const paths = parseStoragePaths(rawPaths);
+  return Promise.all(paths.map((path) => downloadSingle(path)));
 };

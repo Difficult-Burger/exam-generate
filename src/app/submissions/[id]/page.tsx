@@ -5,6 +5,7 @@ import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { getCurrentUser } from "@/lib/auth";
 import { ExamGenerationForm } from "@/components/exams/generation-form";
 import { DownloadButton } from "@/components/exams/download-button";
+import { parseStoragePaths } from "@/lib/materials/files";
 
 const loadSubmission = async (submissionId: string, ownerId: string) => {
   const supabase = await createServerSupabaseClient();
@@ -57,6 +58,11 @@ export default async function SubmissionDetailPage({
     notFound();
   }
 
+  const slidePaths = parseStoragePaths(submission.slides_storage_path);
+  const samplePaths = parseStoragePaths(submission.sample_storage_path);
+  const slideNames = slidePaths.map((path) => path.split("/").pop() || path);
+  const sampleNames = samplePaths.map((path) => path.split("/").pop() || path);
+
   const generations = await loadExamGenerations(submission.id);
 
   return (
@@ -86,16 +92,26 @@ export default async function SubmissionDetailPage({
         <dl className="mt-4 grid grid-cols-1 gap-y-2 text-sm text-slate-500 md:grid-cols-2">
           <div>
             <dt className="font-medium text-slate-700">slides</dt>
-            <dd className="truncate">{submission.slides_storage_path}</dd>
+            <dd className="space-y-1 text-xs text-slate-500">
+              {slideNames.length === 0 && "未上传"}
+              {slideNames.map((name, index) => (
+                <div key={`${slidePaths[index]}-${index}`} className="truncate">
+                  {name}
+                </div>
+              ))}
+            </dd>
           </div>
-          {submission.sample_storage_path && (
-            <div>
-              <dt className="font-medium text-slate-700">样例试卷</dt>
-              <dd className="truncate">
-                {submission.sample_storage_path}
-              </dd>
-            </div>
-          )}
+          <div>
+            <dt className="font-medium text-slate-700">样例试卷</dt>
+            <dd className="space-y-1 text-xs text-slate-500">
+              {sampleNames.length === 0 && "—"}
+              {sampleNames.map((name, index) => (
+                <div key={`${samplePaths[index]}-${index}`} className="truncate">
+                  {name}
+                </div>
+              ))}
+            </dd>
+          </div>
           <div>
             <dt className="font-medium text-slate-700">上传时间</dt>
             <dd>{new Date(submission.created_at).toLocaleString()}</dd>

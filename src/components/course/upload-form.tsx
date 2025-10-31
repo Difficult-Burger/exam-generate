@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type Dispatch, type SetStateAction } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -41,28 +41,60 @@ export const UploadMaterialForm = ({
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
   });
-  const [slidesFile, setSlidesFile] = useState<File | null>(null);
-  const [sampleFile, setSampleFile] = useState<File | null>(null);
+  const [slidesFiles, setSlidesFiles] = useState<File[]>([]);
+  const [sampleFiles, setSampleFiles] = useState<File[]>([]);
   const [status, setStatus] = useState<
     "idle" | "uploading" | "success" | "error"
   >("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const validateFile = (file: File | null, isRequired = false) => {
-    if (!file) {
+  const mergeUnique = (current: File[], incoming: File[]) => {
+    const merged = [...current, ...incoming];
+    const seen = new Set<string>();
+    const result: File[] = [];
+    merged.forEach((file) => {
+      const key = `${file.name}-${file.size}-${file.lastModified}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        result.push(file);
+      }
+    });
+    return result;
+  };
+
+  const removeFile = (
+    setter: Dispatch<SetStateAction<File[]>>,
+    target: File,
+  ) => {
+    setter((prev) =>
+      prev.filter(
+        (file) =>
+          !(
+            file.name === target.name &&
+            file.size === target.size &&
+            file.lastModified === target.lastModified
+          ),
+      ),
+    );
+  };
+
+  const validateFiles = (files: File[], isRequired = false) => {
+    if (!files.length) {
       if (isRequired) {
-        throw new Error("请上传课程 slides（支持 PDF / PPT / PPTX）");
+        throw new Error("请至少上传 1 个课程 slides（支持 PDF / PPT / PPTX）");
       }
       return;
     }
 
-    if (!ACCEPTED_TYPES.includes(file.type)) {
-      throw new Error(`仅支持上传 ${readableTypes} 文件。`);
-    }
+    files.forEach((file) => {
+      if (!ACCEPTED_TYPES.includes(file.type)) {
+        throw new Error(`仅支持上传 ${readableTypes} 文件。`);
+      }
 
-    if (file.size > 40 * 1024 * 1024) {
-      throw new Error("文件大小不要超过 40MB。");
-    }
+      if (file.size > 40 * 1024 * 1024) {
+        throw new Error("单个文件大小不要超过 40MB。");
+      }
+    });
   };
 
   const onSubmit = handleSubmit(async (values) => {
@@ -70,20 +102,20 @@ export const UploadMaterialForm = ({
       setStatus("uploading");
       setErrorMessage(null);
 
-      validateFile(slidesFile, true);
-      validateFile(sampleFile ?? null);
+      validateFiles(slidesFiles, true);
+      validateFiles(sampleFiles);
 
       const formData = new FormData();
       formData.append("courseTitle", values.courseTitle);
       if (values.courseDescription) {
         formData.append("courseDescription", values.courseDescription);
       }
-      if (slidesFile) {
-        formData.append("slides", slidesFile);
-      }
-      if (sampleFile) {
-        formData.append("sampleExam", sampleFile);
-      }
+      slidesFiles.forEach((file) => {
+        formData.append("slides", file);
+      });
+      sampleFiles.forEach((file) => {
+        formData.append("sampleExam", file);
+      });
 
       const response = await fetch("/api/upload", {
         method: "POST",
@@ -96,8 +128,8 @@ export const UploadMaterialForm = ({
       }
 
       reset();
-      setSlidesFile(null);
-      setSampleFile(null);
+      setSlidesFiles([]);
+      setSampleFiles([]);
       setStatus("success");
       await onUploaded?.();
       router.refresh();
@@ -155,38 +187,80 @@ export const UploadMaterialForm = ({
         </label>
 
         <label className="block text-sm font-medium text-slate-700">
-          课程 slides（必填）
+          课程 slides（必填，可多选）
           <input
             type="file"
             accept={ACCEPTED_TYPES.join(",")}
+            multiple
             onChange={(event) => {
-              const file = event.target.files?.[0] ?? null;
-              setSlidesFile(file);
+              const files = event.target.files
+                ? Array.from(event.target.files)
+                : [];
+      setSlidesFiles((prev) => mergeUnique(prev, files));
             }}
             className="mt-1 w-full cursor-pointer rounded-md border border-dashed border-slate-300 bg-slate-50 px-3 py-8 text-sm text-slate-600 file:hidden"
           />
-          {slidesFile && (
-            <span className="mt-1 block text-xs text-slate-500">
-              已选择：{slidesFile.name}
-            </span>
+          {slidesFiles.length > 0 && (
+            <ul className="mt-2 space-y-2 text-xs text-slate-500">
+              {slidesFiles.map((file) => (
+                <li
+                  key={`${file.name}-${file.size}-${file.lastModified}`}
+                  className="flex items-center justify-between rounded bg-slate-100 px-2 py-1"
+                >
+                  <span className="truncate pr-2">{file.name}</span>
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      removeFile(setSlidesFiles, file);
+                    }}
+                    className="text-slate-500 transition hover:text-slate-800"
+                  >
+                    移除
+                  </button>
+                </li>
+              ))}
+            </ul>
           )}
         </label>
 
         <label className="block text-sm font-medium text-slate-700">
-          样例试卷（可选）
+          样例试卷（可选，可多选）
           <input
             type="file"
             accept={ACCEPTED_TYPES.join(",")}
+            multiple
             onChange={(event) => {
-              const file = event.target.files?.[0] ?? null;
-              setSampleFile(file);
+              const files = event.target.files
+                ? Array.from(event.target.files)
+                : [];
+      setSampleFiles((prev) => mergeUnique(prev, files));
             }}
             className="mt-1 w-full cursor-pointer rounded-md border border-dashed border-slate-300 bg-slate-50 px-3 py-6 text-sm text-slate-600 file:hidden"
           />
-          {sampleFile && (
-            <span className="mt-1 block text-xs text-slate-500">
-              已选择：{sampleFile.name}
-            </span>
+          {sampleFiles.length > 0 && (
+            <ul className="mt-2 space-y-2 text-xs text-slate-500">
+              {sampleFiles.map((file) => (
+                <li
+                  key={`${file.name}-${file.size}-${file.lastModified}`}
+                  className="flex items-center justify-between rounded bg-slate-100 px-2 py-1"
+                >
+                  <span className="truncate pr-2">{file.name}</span>
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      removeFile(setSampleFiles, file);
+                    }}
+                    className="text-slate-500 transition hover:text-slate-800"
+                  >
+                    移除
+                  </button>
+                </li>
+              ))}
+            </ul>
           )}
         </label>
       </div>
